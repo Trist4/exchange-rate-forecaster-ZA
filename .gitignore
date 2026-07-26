@@ -1,0 +1,20 @@
+# Secrets — EconData credentials live in .env, never commit them
+.env
+
+# Virtual environments
+.venv/
+venv/
+
+# Python artifacts
+__pycache__/
+*.pyc
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Data cache — downloadable, so not versioned (keep the folder via .gitkeep)
+data/raw/*.parquet
+data/processed/*.parquet
+data/results/*.parquet
+
+# OS noise
+.DS_Store
