@@ -12,6 +12,7 @@ pandas-datareader  # FRED download (no API key needed)
 python-dotenv      # loads ECONDATA_CREDENTIALS from .env
 pytz               # econdatapy runtime dep (we install it with --no-deps, see below)
 requests           # econdatapy runtime dep
+pyjwt              # econdatapy runtime dep; also used to check API-token expiry
 
 # Tooling
 jupyter

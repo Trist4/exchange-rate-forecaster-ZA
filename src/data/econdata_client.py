@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import os
 import sys
+from datetime import datetime
 
 import pandas as pd
 from dotenv import load_dotenv
@@ -31,14 +32,34 @@ def _read_dataset(dataset_id: str) -> dict:
             "ECONDATA_DATASET_ID is empty in src/config.py. Run the discovery "
             "helper first:  python -m src.data.econdata_client <DATASET_ID>"
         )
-    if not os.getenv("ECONDATA_CREDENTIALS"):
+    credentials = os.getenv("ECONDATA_CREDENTIALS")
+    if not credentials:
         raise RuntimeError(
             "ECONDATA_CREDENTIALS is not set. Copy .env.example to .env and "
-            "paste your EconData credentials."
+            "paste your EconData API token."
         )
     # Imported lazily so the rest of the pipeline (models, backtest, tests)
     # works even before econdatapy is installed from test PyPI.
     from econdatapy import read
+
+    # EconData issues PERSONAL API TOKENS (a JWT, valid ~24h). econdatapy's
+    # own login helper only understands "client_id;client_secret" — but all
+    # that flow does is exchange those for exactly this kind of Bearer
+    # token. So when the env var holds a token (no ';'), we place it
+    # directly into econdatapy's module-level token cache; read.dataset()
+    # then re-checks its expiry itself and proceeds. An "id;secret" value
+    # still works via the library's native path, untouched.
+    if ";" not in credentials:
+        import jwt as pyjwt  # pyjwt — already a runtime dep of econdatapy
+
+        claims = pyjwt.decode(credentials, options={"verify_signature": False})
+        expires = datetime.fromtimestamp(claims["exp"])
+        if datetime.now() >= expires:
+            raise RuntimeError(
+                f"Your EconData API token expired at {expires}. Log in to the "
+                "EconData portal, copy a fresh token, and update .env."
+            )
+        read.econdata_token = "Bearer " + credentials
 
     return read.dataset(dataset_id)
 

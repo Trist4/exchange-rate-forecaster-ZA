@@ -82,8 +82,9 @@ def add_target_and_features(df: pd.DataFrame) -> pd.DataFrame:
 
     # 4-week log changes of commodity/dollar prices: matches the 4-week
     # forecast horizon, and momentum in SA's terms-of-trade drivers is the
-    # economic story we want the models to exploit.
-    for name in ("gold", "platinum", "brent", "dxy"):
+    # economic story we want the models to exploit. (No platinum: the SARB
+    # MARKET_RATES dataflow has no platinum series — see config.py.)
+    for name in ("gold", "brent", "dxy"):
         out[f"d4_log_{name}"] = np.log(out[name]).diff(4)
 
     # VIX is already a percentage-like index, so a simple 4-week difference

@@ -79,20 +79,30 @@ downloaded — if they pass, your environment is good.
 
 ## 3. Credentials (.env)
 
+EconData uses a **personal API token** — a long JWT string starting with
+`eyJ...` that you copy from the EconData portal (econdata.co.za) after
+logging in. Tokens are **valid for ~24 hours**, so expect to paste a fresh
+one each hackathon day.
+
 ```bash
 cp .env.example .env
 ```
 
-Open `.env` and set — **semicolon-separated, no spaces, no quotes**:
+Open `.env` and set — the raw token, no quotes, no `Bearer` prefix:
 
 ```
-ECONDATA_CREDENTIALS=your-client-id;your-client-secret
+ECONDATA_CREDENTIALS=eyJraWQiOiJYL1ZJ...the-whole-long-string...
 ```
 
-That exact `id;secret` format is what the econdatapy library parses (it
-splits on `;` and errors if there aren't exactly 2 parts). `.env` is
-git-ignored — **never commit credentials**. The code loads it automatically
-via `python-dotenv`; you don't need to `export` anything.
+Our client (`src/data/econdata_client.py`) detects the format: a raw token
+is injected straight into econdatapy's auth layer (that's all the library's
+own login would produce anyway), while a legacy `client_id;client_secret`
+pair — if your account has one — still goes through the library's native
+flow. If the token has expired you get a clear error telling you to fetch
+a fresh one.
+
+`.env` is git-ignored — **never commit credentials**. The code loads it
+automatically via `python-dotenv`; you don't need to `export` anything.
 
 ---
 
@@ -283,8 +293,9 @@ If you touch anything in `src/models/`, `src/backtest.py` or
 | `No module named '_tkinter'` | `brew install python-tk@3.12` (macOS) / `apt install python3-tk` (Linux) |
 | `No module named 'pytz'` (or `jwt`) | `pip install -r requirements.txt` again — these must come from real PyPI |
 | `ECONDATA_CREDENTIALS is not set` | Do step 3; make sure the file is named exactly `.env`, in the repo root |
-| `Error reading EconData credentials` | The value must be `id;secret` — exactly one semicolon |
-| A Tk login window pops up | Same as above — econdatapy falls back to a GUI when the env var is missing |
+| `Your EconData API token expired at ...` | Tokens last ~24h — log in to the portal, copy a fresh one into `.env` |
+| An HTTP 401/Unauthorized from the API | Usually the same thing: stale token, or a stray space/newline pasted into `.env` |
+| A Tk login window pops up | The env var is missing/empty — check `.env` exists and has no typo in the variable name |
 | `SARB_SERIES entries not filled` | Do steps 4–5 (discovery, then paste into `src/config.py`) |
 | `Missing cached series [...] in data/raw/` | Run `python run.py fetch` before `build` |
 | Tests pass but `make all` fails at fetch | That's expected until steps 3–5 are done; FRED still fetches fine |

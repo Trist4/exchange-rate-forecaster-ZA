@@ -24,13 +24,20 @@ def _metrics(g: pd.DataFrame) -> pd.Series:
     err = g["forecast"] - g["actual"]
     # Directional hit: did we call the SIGN of the move from the origin
     # spot correctly? A judge-friendly stat because a desk trading on the
-    # forecast cares about direction before magnitude.
-    hits = np.sign(g["forecast"] - g["origin_spot"]) == np.sign(g["actual"] - g["origin_spot"])
+    # forecast cares about direction before magnitude. Forecasts that
+    # predict exactly no change (the RandomWalk, by construction) call no
+    # direction at all, so they are excluded rather than scored as misses
+    # — its hit_rate shows as NaN, which is the truthful answer.
+    pred_dir = np.sign(g["forecast"] - g["origin_spot"])
+    actual_dir = np.sign(g["actual"] - g["origin_spot"])
+    directional = pred_dir != 0
     return pd.Series(
         {
             "rmse": float(np.sqrt((err**2).mean())),
             "mae": float(err.abs().mean()),
-            "hit_rate": float(hits.mean()),
+            "hit_rate": float((pred_dir == actual_dir)[directional].mean())
+            if directional.any()
+            else np.nan,
             "n": int(len(g)),
         }
     )
