@@ -1,0 +1,27 @@
+# Core scientific stack
+pandas
+numpy
+scipy              # t-distribution for the Diebold-Mariano p-value
+matplotlib
+scikit-learn
+statsmodels
+pyarrow            # parquet read/write for the data cache
+
+# Data access
+pandas-datareader  # FRED download (no API key needed)
+python-dotenv      # loads ECONDATA_CREDENTIALS from .env
+pytz               # econdatapy runtime dep (we install it with --no-deps, see below)
+requests           # econdatapy runtime dep
+
+# Tooling
+jupyter
+pytest
+
+# NOTE: econdatapy is NOT listed here on purpose. It lives on TEST PyPI, and
+# adding test.pypi.org as an extra index for the whole requirements file could
+# silently pull broken test builds of *other* packages. Install it separately:
+#
+#   pip install -i https://test.pypi.org/simple/ --no-deps econdatapy
+#
+# (--no-deps so its dependencies still come from real PyPI; they are already
+# covered by the packages above). `make install` does both steps.
