@@ -82,6 +82,27 @@ FRED_SERIES: dict[str, str] = {
     "vix": "VIXCLS",         # CBOE VIX (global risk appetite)
     "us_3m": "DGS3MO",       # US 3-month Treasury yield
     "brent": "DCOILBRENTEU", # Brent crude (SA is a large oil importer)
+    # Credit-stress gauge. We WANTED the ICE BofA HY spread (BAMLH0A0HYM2),
+    # but FRED now only serves its trailing ~3 years (ICE licensing), which
+    # cannot support a backtest from 2021. Substitute with the same signal
+    # built from full-history series: Moody's Baa corporate yield minus the
+    # 10y Treasury = the classic daily credit spread (data back to the 80s).
+    # EM currencies sell off when credit spreads blow out, and credit often
+    # moves on stress that VIX (an equity measure) misses.
+    "baa": "DBAA",     # Moody's seasoned Baa corporate bond yield, daily
+    "us_10y": "DGS10", # US 10y Treasury yield, daily
+}
+
+# ---------------------------------------------------------------------------
+# Local CSV series (hand-downloaded, committed to the repo — no API)
+# ---------------------------------------------------------------------------
+# Platinum: SA's biggest PGM export, but MARKET_RATES has no platinum series
+# and FRED no free daily history, so the team downloaded a daily USD per
+# troy ounce CSV (1969–present). Files live in data/raw/ and are converted
+# to the parquet cache by src/data/local_csv.py during the fetch stage.
+# TODO: record the download URL here for provenance (judges will ask).
+LOCAL_CSV_SERIES: dict[str, str] = {
+    "platinum": "plt_per_troy_ounce.csv",
 }
 
 # ---------------------------------------------------------------------------
@@ -97,10 +118,11 @@ TARGET_COL = "log_usdzar"
 # the outcome is created when models pair X_t with y_{t+h} during fit.
 FEATURE_COLS: list[str] = [
     "d4_log_gold",      # 4-week log change in gold (SA's top export)
-    # (d4_log_platinum dropped — no platinum series in MARKET_RATES)
+    "d4_log_platinum",  # 4-week log change in platinum (SA's top PGM export; local CSV)
     "d4_log_brent",     # 4-week log change in Brent (SA's top import)
     "d4_log_dxy",       # 4-week log change in broad USD index (global USD strength)
     "d4_vix",           # 4-week change in VIX level (risk-on/risk-off for EM FX)
+    "d4_credit",        # 4-week change in US credit spread, Baa − 10y Treasury (credit stress)
     "rate_spread",      # SA 3m rate minus US 3m rate (carry / UIP-style term)
     "mr_gap",           # log USDZAR minus its trailing 52-week mean (mean reversion)
 ]

@@ -19,13 +19,14 @@ from src.config import (
     DATA_START,
     FEATURE_COLS,
     FRED_SERIES,
+    LOCAL_CSV_SERIES,
     SARB_SERIES,
     TARGET_COL,
 )
 
-# Every series the table needs, from either source. If a cache file is
+# Every series the table needs, from any source. If a cache file is
 # missing we fail loudly with instructions instead of fetching silently.
-ALL_SERIES = list(SARB_SERIES) + list(FRED_SERIES)
+ALL_SERIES = list(SARB_SERIES) + list(FRED_SERIES) + list(LOCAL_CSV_SERIES)
 
 
 def load_cached_series() -> dict[str, pd.Series]:
@@ -82,14 +83,22 @@ def add_target_and_features(df: pd.DataFrame) -> pd.DataFrame:
 
     # 4-week log changes of commodity/dollar prices: matches the 4-week
     # forecast horizon, and momentum in SA's terms-of-trade drivers is the
-    # economic story we want the models to exploit. (No platinum: the SARB
-    # MARKET_RATES dataflow has no platinum series — see config.py.)
-    for name in ("gold", "brent", "dxy"):
+    # economic story we want the models to exploit. (Platinum comes from a
+    # hand-downloaded CSV — see LOCAL_CSV_SERIES in config.py.)
+    for name in ("gold", "platinum", "brent", "dxy"):
         out[f"d4_log_{name}"] = np.log(out[name]).diff(4)
 
     # VIX is already a percentage-like index, so a simple 4-week difference
     # (not a log change) is the natural "risk appetite shifted" measure.
     out["d4_vix"] = out["vix"].diff(4)
+
+    # US credit spread (Moody's Baa yield minus 10y Treasury), in
+    # percentage points, so same treatment: 4-week difference = "did US
+    # credit stress rise or fall". WHY it belongs: credit spreads are the
+    # classic risk-off gauge for EM FX and move on stress that VIX (an
+    # equity measure) sometimes misses. (See config.py for why this stands
+    # in for the ICE BofA HY spread, which FRED truncated to ~3 years.)
+    out["d4_credit"] = (out["baa"] - out["us_10y"]).diff(4)
 
     # Carry / interest-parity term: SA short rate minus US short rate, in
     # levels because the spread itself (not its change) prices the carry.

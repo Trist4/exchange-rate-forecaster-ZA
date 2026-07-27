@@ -15,7 +15,9 @@ import sys
 def stage_fetch() -> None:
     from src.config import ECONDATA_DATASET_ID, SARB_SERIES
     from src.data.fred_client import fetch_fred_series
+    from src.data.local_csv import convert_local_csvs
 
+    convert_local_csvs()
     fetch_fred_series()
 
     # SARB fetch only once discovery has been done and config filled in;

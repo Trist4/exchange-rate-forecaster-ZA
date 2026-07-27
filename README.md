@@ -25,10 +25,13 @@ Everything below is built, tested, and has already been run on real data.
       yield, Brent oil.
 - [x] All downloads **cached** as parquet files in `data/raw/` — fetch once,
       then everything runs offline.
+- [x] **Platinum via local CSV** (`data/raw/plt_per_troy_ounce.csv`,
+      daily USD/oz back to 1969) — not available from SARB or FRED, so it's
+      a hand-downloaded file converted into the same cache by
+      `src/data/local_csv.py`. *(TODO: record source URL in config.py.)*
 - [x] **Weekly Friday table** built (`data/processed/weekly.parquet`):
       812 Fridays, 2010→2026, each row = one Friday with the exchange rate
-      + 6 predictor features. (Platinum was planned but doesn't exist in
-      the SARB dataset, so it was dropped — the brief allows this.)
+      + 8 predictor features.
 
 ### Done — models (all share one simple fit/predict interface)
 - [x] **RandomWalk** — "next month = today". The classic FX benchmark.
@@ -64,8 +67,13 @@ Everything below is built, tested, and has already been run on real data.
 | RandomWalk | 0.5600 | 1.002  | n/a      |
 | Lasso      | 0.5674 | 1.015  | 46%      |
 | RW+Drift   | 0.5677 | 1.016  | 46%      |
-| Ridge      | 0.5814 | 1.040  | 46%      |
-| OLS        | 0.5846 | 1.046  | 46%      |
+| Ridge      | 0.5892 | 1.054  | 45%      |
+| OLS        | 0.5950 | 1.065  | 45%      |
+
+(8 features incl. the US credit spread and platinum. A consistent pattern:
+every feature we add leaves Lasso *exactly* unchanged — it shrinks the
+newcomers to zero — while unregularised OLS, forced to fit them, drifts
+further behind AR1. Textbook regularisation, live on our own data.)
 
 Nothing beats AR(1) overall — this is the famous Meese–Rogoff result and it
 is a *defensible* finding, not a failure. Our best story for the judges:
