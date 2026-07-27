@@ -86,14 +86,16 @@ def fig_history(weekly: pd.DataFrame) -> Figure:
     return fig
 
 
-def fig_predictors(weekly: pd.DataFrame) -> Figure:
+def fig_predictors(weekly: pd.DataFrame, cols: list[str] | None = None) -> Figure:
     """(d) Small multiples of every feature — one glance shows scale,
-    gaps and the Covid/2022 spikes each model gets to react to."""
-    n = len(FEATURE_COLS)
+    gaps and the Covid/2022 spikes each model gets to react to.
+    `cols` lets ModelTester.ipynb plot a custom feature subset."""
+    cols = cols if cols is not None else FEATURE_COLS
+    n = len(cols)
     ncols = 2
     nrows = -(-n // ncols)  # ceil division
     fig, axes = plt.subplots(nrows, ncols, figsize=(11, 2.4 * nrows), sharex=True)
-    for ax, col in zip(axes.ravel(), FEATURE_COLS):
+    for ax, col in zip(axes.ravel(), cols):
         ax.plot(weekly.index, weekly[col], lw=0.9)
         ax.set_title(col, fontsize=11)
         ax.axvspan(pd.Timestamp(EVAL_START), pd.Timestamp(EVAL_END),

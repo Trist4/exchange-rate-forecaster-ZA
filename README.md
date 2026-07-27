@@ -117,6 +117,27 @@ fundamentals actually moved, and lose in calm years when "no change" rules.
 
 ---
 
+## Teammate quickstart (fresh clone, no EconData token needed)
+
+The data snapshot is committed in `data/raw/`, so after cloning you only
+need a Python environment — no API credentials, no fetching:
+
+```bash
+git pull                                       # or clone the repo
+python3 -m venv .venv && source .venv/bin/activate
+make install                                   # deps + econdatapy (test PyPI)
+# macOS/Homebrew only, if econdatapy errors on tkinter:
+#   brew install python-tk@3.12   (match your Python version, e.g. @3.14)
+
+python run.py build backtest evaluate plots    # skip fetch — data is in git
+make test                                      # should say: 4 passed
+jupyter lab                                    # then open notebooks/ModelTester.ipynb
+```
+
+Only run `python run.py fetch` if you deliberately want to re-download
+data — that needs an EconData token in `.env` (see DEVELOPERSETUP.MD §3),
+and refreshed data should be committed so the team stays on one snapshot.
+
 ## How to run it
 
 ```bash

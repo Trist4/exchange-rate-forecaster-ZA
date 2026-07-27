@@ -15,7 +15,7 @@ import numpy as np
 import pandas as pd
 from matplotlib.figure import Figure
 
-from src.config import FEATURE_COLS, HORIZON_WEEKS, TARGET_COL
+from src.config import EVAL_END, EVAL_START, FEATURE_COLS, HORIZON_WEEKS, TARGET_COL
 from src.evaluate import diebold_mariano, load_results, overall_table
 from src.models import BENCHMARK_NAME
 
@@ -140,6 +140,128 @@ def fig_error_hist(results: pd.DataFrame, model_name: str) -> Figure:
     ax.set_title(f"{model_name}: error distribution")
     ax.legend()
     return fig
+
+
+# ---------------------------------------------------------------------------
+# Summary statistics (brief requirement: obs counts for estimation and
+# forecast periods)
+# ---------------------------------------------------------------------------
+def obs_counts(weekly: pd.DataFrame) -> pd.DataFrame:
+    """Observation counts + basic USDZAR stats per period.
+
+    'Estimation' = data before the first forecast origin (what the first
+    model fit sees); the training set then GROWS through the forecast
+    window because of the expanding-window design — by the last origin the
+    models train on estimation + almost all of the forecast window.
+    """
+    parts = {
+        "estimation (pre-2021)": weekly[weekly.index < EVAL_START],
+        "forecast window (2021-25)": weekly[
+            (weekly.index >= EVAL_START) & (weekly.index <= EVAL_END)
+        ],
+        "full weekly table": weekly,
+    }
+    return pd.DataFrame(
+        {
+            name: {
+                "fridays": len(p),
+                "first": p.index.min().date(),
+                "last": p.index.max().date(),
+                "usdzar mean": round(float(p["usdzar"].mean()), 2),
+                "usdzar min": round(float(p["usdzar"].min()), 2),
+                "usdzar max": round(float(p["usdzar"].max()), 2),
+            }
+            for name, p in parts.items()
+        }
+    ).T
+
+
+# ---------------------------------------------------------------------------
+# Overfitting / "lag" checks (why model and AR1 error curves look identical)
+# ---------------------------------------------------------------------------
+def error_correlation(results: pd.DataFrame, model_name: str,
+                      other: str = BENCHMARK_NAME) -> float:
+    """Correlation between two models' error series, matched by origin.
+
+    Near 1.0 means the models make essentially the SAME errors — which
+    happens when both forecast tiny moves, so both error series are just
+    (minus) the actual 4-week move. That, not overfitting, is why the
+    error-timeline chart shows two near-identical wiggly lines.
+    """
+    a = model_slice(results, model_name).set_index("origin")
+    b = model_slice(results, other).set_index("origin")
+    common = a.index.intersection(b.index)
+    return float((a.loc[common, "forecast"] - a.loc[common, "actual"])
+                 .corr(b.loc[common, "forecast"] - b.loc[common, "actual"]))
+
+
+def error_autocorr(results: pd.DataFrame, model_name: str, max_lag: int = 6) -> pd.Series:
+    """Autocorrelation of the (signed) error series by lag in weeks.
+
+    The 'lag/wave' look of the error chart is mechanical: consecutive
+    weekly origins forecast 4-week windows that OVERLAP by 3 weeks, so
+    neighbouring errors share most of their outcome — theory says the
+    errors behave like an MA(h-1) process: strong autocorrelation at lags
+    1..3, roughly none from lag 4. This lets you verify that directly.
+    """
+    g = model_slice(results, model_name).set_index("origin")
+    err = g["forecast"] - g["actual"]
+    return pd.Series(
+        {f"lag {k}w": round(float(err.autocorr(k)), 3) for k in range(1, max_lag + 1)},
+        name=f"{model_name} error autocorrelation",
+    )
+
+
+def fig_move_scatter(results: pd.DataFrame, model_name: str) -> Figure:
+    """Predicted vs actual 4-week log move. THE overfitting-or-not picture:
+    a cloud hugging the horizontal axis means the model barely commits to
+    any move (no overfit, little signal); points spread along the 45° line
+    would mean real predictive power."""
+    g = model_slice(results, model_name)
+    pred = g["forecast_log"] - g["origin_log"]
+    act = g["actual_log"] - g["origin_log"]
+    fig, ax = plt.subplots(figsize=(6, 6))
+    lim = float(act.abs().max()) * 1.1
+    ax.axline((0, 0), slope=1, color="grey", ls="--", lw=1, label="perfect forecast (45°)")
+    ax.axhline(0, color="black", lw=0.8)
+    ax.scatter(act, pred, s=14, alpha=0.6)
+    ax.set_xlim(-lim, lim)
+    ax.set_ylim(-lim, lim)
+    ax.set_xlabel("actual 4-week log move")
+    ax.set_ylabel("predicted 4-week log move")
+    ax.set_title(f"{model_name}: predicted vs actual move\n"
+                 f"sd(pred)/sd(actual) = {pred.std() / act.std():.2f},  "
+                 f"corr = {pred.corr(act):+.2f}")
+    ax.legend()
+    return fig
+
+
+def insample_vs_oos(weekly: pd.DataFrame, results: pd.DataFrame,
+                    model_name: str, model_factory) -> pd.DataFrame:
+    """The classic overfitting diagnostic: RMSE on data the model was fit
+    on vs RMSE on data it never saw. A large gap (ratio >> 1) = overfit.
+
+    Approximation, on purpose: we fit ONCE on the pre-2021 estimation
+    sample and score it in-sample, then compare against the pipeline's
+    true out-of-sample RMSE (which refits every week). Good enough to see
+    whether a model memorises noise; simple enough to explain in a demo.
+    """
+    train = weekly[weekly.index < EVAL_START]
+    model = model_factory()
+    model.fit(train)
+    actual_log = train[TARGET_COL].shift(-HORIZON_WEEKS)
+    sq = [
+        (np.exp(model.predict(train.loc[t])) - np.exp(actual_log[t])) ** 2
+        for t in train.index
+        if not np.isnan(actual_log[t])
+    ]
+    ins = float(np.sqrt(np.mean(sq)))
+    g = model_slice(results, model_name)
+    oos = float(np.sqrt(((g["forecast"] - g["actual"]) ** 2).mean()))
+    return pd.DataFrame(
+        {"rmse": [ins, oos, oos / ins]},
+        index=["in-sample (fit once, pre-2021)", "out-of-sample (pipeline)", "ratio"],
+    ).round(4)
 
 
 # ---------------------------------------------------------------------------

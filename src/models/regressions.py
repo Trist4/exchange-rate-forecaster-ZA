@@ -34,8 +34,8 @@ from src.models.base import Model, make_supervised_pairs
 ALPHA_GRID = np.logspace(-4, 2, 25)
 
 
-def _origin_features(origin_row: pd.Series) -> np.ndarray | None:
-    x = origin_row[FEATURE_COLS].to_numpy(dtype=float)
+def _origin_features(origin_row: pd.Series, features: list[str]) -> np.ndarray | None:
+    x = origin_row[features].to_numpy(dtype=float)
     return None if np.isnan(x).any() else x.reshape(1, -1)
 
 
@@ -45,16 +45,22 @@ class FundamentalsOLS(Model):
     WHY keep it despite Ridge/Lasso existing: it is the fully transparent
     version — every coefficient has a sign we can defend economically
     (e.g. gold up => rand stronger => negative coefficient).
+
+    `features=None` -> the official config list; pass a subset in
+    ModelTester.ipynb to experiment with alternative feature sets.
     """
 
     name = "OLS"
 
+    def __init__(self, features: list[str] | None = None) -> None:
+        self.features = features if features is not None else FEATURE_COLS
+
     def fit(self, train_df: pd.DataFrame) -> None:
-        X, y_future, y_now = make_supervised_pairs(train_df)
+        X, y_future, y_now = make_supervised_pairs(train_df, features=self.features)
         self._fit = sm.OLS(y_future - y_now, sm.add_constant(X)).fit()
 
     def predict(self, origin_row: pd.Series) -> float:
-        x = _origin_features(origin_row)
+        x = _origin_features(origin_row, self.features)
         if x is None:
             return float(origin_row[TARGET_COL])  # fallback: no-change
         exog = np.concatenate(([1.0], x.ravel()))
@@ -65,13 +71,14 @@ class _TunedLinear(Model):
     """Shared machinery for Ridge/Lasso: scale -> penalised regression,
     alpha chosen by time-series CV within the training window."""
 
-    def __init__(self, estimator) -> None:
+    def __init__(self, estimator, features: list[str] | None = None) -> None:
+        self.features = features if features is not None else FEATURE_COLS
         # StandardScaler first: penalties shrink all coefficients by the
         # same alpha, which is only fair if features share a scale.
         self._pipe = Pipeline([("scale", StandardScaler()), ("reg", estimator)])
 
     def fit(self, train_df: pd.DataFrame) -> None:
-        X, y_future, y_now = make_supervised_pairs(train_df)
+        X, y_future, y_now = make_supervised_pairs(train_df, features=self.features)
         search = GridSearchCV(
             self._pipe,
             {"reg__alpha": ALPHA_GRID},
@@ -82,7 +89,7 @@ class _TunedLinear(Model):
         self._best = search.best_estimator_
 
     def predict(self, origin_row: pd.Series) -> float:
-        x = _origin_features(origin_row)
+        x = _origin_features(origin_row, self.features)
         if x is None:
             return float(origin_row[TARGET_COL])  # fallback: no-change
         return float(origin_row[TARGET_COL] + self._best.predict(x)[0])
@@ -94,8 +101,8 @@ class RidgeModel(_TunedLinear):
 
     name = "Ridge"
 
-    def __init__(self) -> None:
-        super().__init__(Ridge(random_state=RANDOM_SEED))
+    def __init__(self, features: list[str] | None = None) -> None:
+        super().__init__(Ridge(random_state=RANDOM_SEED), features)
 
 
 class LassoModel(_TunedLinear):
@@ -104,5 +111,5 @@ class LassoModel(_TunedLinear):
 
     name = "Lasso"
 
-    def __init__(self) -> None:
-        super().__init__(Lasso(random_state=RANDOM_SEED, max_iter=50_000))
+    def __init__(self, features: list[str] | None = None) -> None:
+        super().__init__(Lasso(random_state=RANDOM_SEED, max_iter=50_000), features)
