@@ -1,7 +1,7 @@
 """Evaluation: RMSE/MAE/hit-rate tables + Diebold-Mariano test vs AR(1).
 
 All error metrics are computed on the LEVEL exchange rate (ZAR per USD)
-because that is the unit the brief's RMSE comparison is judged in; models
+because that is the unit the task defines the RMSE comparison in; models
 forecast logs internally but we exponentiate in the backtest output.
 """
 from __future__ import annotations
@@ -23,8 +23,8 @@ def load_results() -> pd.DataFrame:
 def _metrics(g: pd.DataFrame) -> pd.Series:
     err = g["forecast"] - g["actual"]
     # Directional hit: did we call the SIGN of the move from the origin
-    # spot correctly? A judge-friendly stat because a desk trading on the
-    # forecast cares about direction before magnitude. Forecasts that
+    # spot correctly? Relevant because a desk trading on the forecast
+    # cares about direction before magnitude. Forecasts that
     # predict exactly no change (the RandomWalk, by construction) call no
     # direction at all, so they are excluded rather than scored as misses
     # — its hit_rate shows as NaN, which is the truthful answer.

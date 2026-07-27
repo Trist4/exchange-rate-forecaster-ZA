@@ -12,9 +12,10 @@ __pycache__/
 .ipynb_checkpoints/
 
 # Data cache: COMMITTED on purpose (total ~1.4 MB). A frozen snapshot means
-# every team member and judge reproduces byte-identical results without
-# needing an EconData token, and the demo works offline. To refresh the
-# data, delete a parquet and re-run `python run.py fetch` (needs a token).
+# anyone cloning the repo reproduces byte-identical results without needing
+# an EconData token, and everything runs offline. To refresh the data,
+# delete a parquet and re-run `python run.py fetch` (needs a token).
 
-# OS noise
+# OS / tooling noise
 .DS_Store
+.claude/

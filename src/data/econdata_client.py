@@ -8,7 +8,7 @@ pipeline honest — nothing is silently guessed.
 Fetch-once cache: every configured series is stored as
 data/raw/<name>.parquet (columns: date, value). All downstream code reads
 only these parquet files, so the pipeline runs offline after one fetch and
-every run uses byte-identical inputs (reproducibility for the judges).
+every run uses byte-identical inputs.
 """
 from __future__ import annotations
 

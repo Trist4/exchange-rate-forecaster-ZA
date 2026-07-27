@@ -1,8 +1,7 @@
 """Central configuration for the USDZAR forecasting project.
 
-Every tunable choice lives in this one file so that when a judge asks
-"where is that decided?", any team member can point here. Nothing below
-is buried inside a function.
+Every tunable choice lives in this one file so that any modelling decision
+can be found in a single place. Nothing below is buried inside a function.
 """
 from __future__ import annotations
 
@@ -54,7 +53,7 @@ RANDOM_SEED: int = 42
 # below. The USDZAR series is EconData code EXCX135 (SARB -> Rates ->
 # Market Rates dataflow); its full series KEY inside the dataset may carry
 # extra dimensions (e.g. frequency), so confirm it via discovery too.
-# Filled from discovery on 2026-07-26 (see DEVELOPERSETUP.MD §4):
+# Found via the discovery helper (python -m src.data.econdata_client):
 # MARKET_RATES = the SARB "Market Rates" dataflow, 28 daily series.
 ECONDATA_DATASET_ID: str = "MARKET_RATES"
 
@@ -100,7 +99,7 @@ FRED_SERIES: dict[str, str] = {
 # and FRED no free daily history, so the team downloaded a daily USD per
 # troy ounce CSV (1969–present). Files live in data/raw/ and are converted
 # to the parquet cache by src/data/local_csv.py during the fetch stage.
-# TODO: record the download URL here for provenance (judges will ask).
+# TODO: record the download URL here for provenance.
 LOCAL_CSV_SERIES: dict[str, str] = {
     "platinum": "plt_per_troy_ounce.csv",
 }
@@ -116,6 +115,21 @@ TARGET_COL = "log_usdzar"
 # Features available at each Friday origin t (built in build_dataset.py).
 # All are functions of data observable ON OR BEFORE t; the h-step lag to
 # the outcome is created when models pair X_t with y_{t+h} during fit.
+# Human-readable catalogue of every feature: what it actually is, where it
+# comes from, and how it's transformed. ModelTester.ipynb displays this as
+# a table so "d4_log_dxy" is never a mystery when choosing subsets.
+FEATURE_INFO: dict[str, tuple[str, str, str]] = {
+    # variable        (actual dataset / series name,               source,                              transform)
+    "d4_log_gold":     ("Gold price, US dollars per fine ounce",    "SARB MARKET_RATES: GDPL201.B.A",    "4-week log change"),
+    "d4_log_platinum": ("Platinum price, USD per troy ounce",       "local CSV: plt_per_troy_ounce.csv", "4-week log change"),
+    "d4_log_brent":    ("Brent crude oil price",                    "FRED: DCOILBRENTEU",                "4-week log change"),
+    "d4_log_dxy":      ("Broad trade-weighted US dollar index",     "FRED: DTWEXBGS",                    "4-week log change"),
+    "d4_vix":          ("CBOE VIX (US equity volatility index)",    "FRED: VIXCLS",                      "4-week change"),
+    "d4_credit":       ("US credit spread: Moody's Baa − 10y UST",  "FRED: DBAA minus DGS10",            "4-week change"),
+    "rate_spread":     ("SA 3m JIBAR minus US 3m Treasury yield",   "SARB: MMSD502.D.A / FRED: DGS3MO",  "level"),
+    "mr_gap":          ("Log USDZAR gap to its 52-week average",    "derived from SARB: EXCX135.B.A",    "level (deviation)"),
+}
+
 FEATURE_COLS: list[str] = [
     "d4_log_gold",      # 4-week log change in gold (SA's top export)
     "d4_log_platinum",  # 4-week log change in platinum (SA's top PGM export; local CSV)

@@ -1,7 +1,7 @@
-"""All presentation figures, saved to reports/figures/ at 150 dpi.
+"""All report figures, saved to reports/figures/ at 150 dpi.
 
 Each figure is its own function that RETURNS the matplotlib Figure, so
-the demo notebook can render them inline and main() can save them —
+the notebooks can render them inline and main() can save them —
 one code path, no notebook/script drift.
 """
 from __future__ import annotations
@@ -23,7 +23,7 @@ from src.config import (
 )
 from src.models import BENCHMARK_NAME
 
-# Presentation-quality defaults: judges read these off a projector.
+# Sized and scaled to stay readable when projected or embedded in slides.
 plt.rcParams.update(
     {
         "figure.dpi": 150,
@@ -44,8 +44,8 @@ def _save(fig: Figure, name: str) -> None:
 
 
 def fig_rmse_bar(overall: pd.DataFrame) -> Figure:
-    """(a) RMSE by model — numeric values ON the bars (explicit judging
-    requirement: nobody should have to eyeball bar heights)."""
+    """(a) RMSE by model — numeric values printed on the bars so exact
+    figures can be read without eyeballing bar heights."""
     tbl = overall.sort_values("rmse")
     fig, ax = plt.subplots(figsize=(8, 5))
     colors = ["tab:orange" if m == BENCHMARK_NAME else "tab:blue" for m in tbl.index]
@@ -73,8 +73,8 @@ def fig_rmse_per_year(per_year: pd.DataFrame) -> Figure:
 
 
 def fig_history(weekly: pd.DataFrame) -> Figure:
-    """(c) Full USDZAR history with the evaluation window shaded, so the
-    audience sees exactly which regimes the models were judged on."""
+    """(c) Full USDZAR history with the evaluation window shaded, showing
+    exactly which regimes the models were evaluated on."""
     fig, ax = plt.subplots(figsize=(10, 4.5))
     ax.plot(weekly.index, weekly["usdzar"], color="tab:blue", lw=1.2)
     ax.axvspan(pd.Timestamp(EVAL_START), pd.Timestamp(EVAL_END),

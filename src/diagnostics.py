@@ -10,6 +10,7 @@ changing one string at the top.
 """
 from __future__ import annotations
 
+import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -143,6 +144,138 @@ def fig_error_hist(results: pd.DataFrame, model_name: str) -> Figure:
 
 
 # ---------------------------------------------------------------------------
+# Forecast-comparison overlay with a selectable window (used with the
+# ipywidgets slider in ModelTester.ipynb Step 6)
+# ---------------------------------------------------------------------------
+def _window(g: pd.DataFrame, start=None, end=None) -> pd.DataFrame:
+    """Filter one model's forecasts to target dates inside [start, end]."""
+    if start is not None:
+        g = g[g["target_date"] >= pd.Timestamp(start)]
+    if end is not None:
+        g = g[g["target_date"] <= pd.Timestamp(end)]
+    return g
+
+
+def fig_forecast_comparison(
+    results: pd.DataFrame, model_name: str, start=None, end=None
+) -> Figure:
+    """Actual (black solid) vs AR1 (orange dashed) vs the chosen model
+    (blue solid), all at TARGET dates — 'what did each say the rate would
+    be on this day, and what was it'. Zooming into a window (via the
+    notebook slider) makes the two forecasts distinguishable; at full
+    range they both hug the actual, which is itself informative."""
+    g = _window(model_slice(results, model_name), start, end)
+    b = _window(model_slice(results, BENCHMARK_NAME), start, end)
+    fig, ax = plt.subplots(figsize=(11, 4.5))
+    ax.plot(g["target_date"], g["actual"], color="black", lw=1.7, label="actual USDZAR")
+    ax.plot(b["target_date"], b["forecast"], color="tab:orange", ls="--", lw=1.4,
+            label=f"{BENCHMARK_NAME} forecast")
+    ax.plot(g["target_date"], g["forecast"], color="tab:blue", lw=1.2, alpha=0.9,
+            label=f"{model_name} forecast")
+    ax.set_ylabel("ZAR per USD")
+    span = (f"{g['target_date'].min().date()} to {g['target_date'].max().date()}"
+            if len(g) else "empty window")
+    ax.set_title(f"{HORIZON_WEEKS}-week-ahead forecasts vs reality — {span}")
+    ax.legend()
+    return fig
+
+
+def window_metrics(
+    results: pd.DataFrame, model_name: str, start=None, end=None
+) -> pd.DataFrame:
+    """Metric table for exactly the window shown in the comparison plot,
+    recomputed on the fly: how do the two models score on just this slice
+    of history? (Same metric code as the official evaluation.)"""
+    from src.evaluate import _metrics  # same definitions as reports/*.csv
+
+    r = results[results["model"].isin([model_name, BENCHMARK_NAME])]
+    r = _window(r, start, end)
+    if r.empty:
+        return pd.DataFrame({"note": ["no scored forecasts in this window"]})
+    tbl = r.groupby("model").apply(_metrics, include_groups=False)
+    tbl["rmse_vs_ar1"] = tbl["rmse"] / tbl.at[BENCHMARK_NAME, "rmse"]
+    return tbl.sort_values("rmse").round(4)
+
+
+def attach_crosshair(fig: Figure) -> None:
+    """Live readout for the comparison chart (needs the interactive ipympl
+    backend, i.e. %matplotlib widget — does nothing useful on static PNGs).
+
+    As the mouse moves over the axes, a dotted vertical guide snaps to the
+    nearest plotted Friday and a box shows EVERY line's value on that date
+    (actual, AR1, model) — so one glance gives the full comparison at any
+    point, no squinting at pixel heights.
+    """
+    ax = fig.axes[0]
+    lines = [ln for ln in ax.get_lines() if len(ln.get_xdata()) > 0]
+    if not lines:
+        return
+    # Pre-convert each line's x values to matplotlib's float date units so
+    # the mouse position (also float units) can be compared directly.
+    xnums = [mdates.date2num(ln.get_xdata()) for ln in lines]
+
+    guide = ax.axvline(ax.get_xlim()[0], color="grey", lw=0.8, ls=":", visible=False)
+    box = ax.annotate(
+        "", xy=(0.99, 0.02), xycoords="axes fraction", ha="right", va="bottom",
+        fontsize=9, family="monospace",
+        bbox=dict(boxstyle="round", fc="white", ec="grey", alpha=0.9),
+        visible=False,
+    )
+
+    def on_move(event) -> None:
+        if event.inaxes is not ax or event.xdata is None:
+            guide.set_visible(False)
+            box.set_visible(False)
+            fig.canvas.draw_idle()
+            return
+        # Snap to the nearest Friday on the first (actual) line.
+        i = int(np.argmin(np.abs(xnums[0] - event.xdata)))
+        snap_x = xnums[0][i]
+        parts = [mdates.num2date(snap_x).strftime("%Y-%m-%d")]
+        for ln, xn in zip(lines, xnums):
+            j = int(np.argmin(np.abs(xn - snap_x)))
+            parts.append(f"{ln.get_label():<14s} {ln.get_ydata()[j]:7.3f}")
+        guide.set_xdata([snap_x, snap_x])
+        guide.set_visible(True)
+        box.set_text("\n".join(parts))
+        box.set_visible(True)
+        fig.canvas.draw_idle()
+
+    fig.canvas.mpl_connect("motion_notify_event", on_move)
+
+
+def window_table(
+    results: pd.DataFrame, model_name: str, start=None, end=None, rows: int = 12
+) -> pd.DataFrame:
+    """The numbers behind the comparison plot, side by side (last `rows`
+    target dates of the window).
+
+    How to read the famous 'one-month lag' here: compare any forecast to
+    the 'spot at origin' column — they nearly match. Each model basically
+    carries the origin-Friday rate forward 4 weeks, so the forecast curve
+    is the actual curve shifted one month right. The 'actual' column is
+    what the rand then did instead.
+    """
+    g = _window(model_slice(results, model_name), start, end).set_index("target_date")
+    cols = {
+        "made on (origin)": g["origin"].dt.date,
+        "spot at origin": g["origin_spot"],
+    }
+    if model_name != BENCHMARK_NAME:
+        b = _window(model_slice(results, BENCHMARK_NAME), start, end).set_index("target_date")
+        cols[f"{BENCHMARK_NAME} forecast"] = b["forecast"]
+    cols[f"{model_name} forecast"] = g["forecast"]
+    cols["actual"] = g["actual"]
+    if model_name != BENCHMARK_NAME:
+        cols[f"{BENCHMARK_NAME} |err|"] = (b["forecast"] - b["actual"]).abs()
+    cols[f"{model_name} |err|"] = (g["forecast"] - g["actual"]).abs()
+    tbl = pd.DataFrame(cols).tail(rows).round(3)
+    tbl.index = tbl.index.date
+    tbl.index.name = "target date"
+    return tbl
+
+
+# ---------------------------------------------------------------------------
 # Summary statistics (brief requirement: obs counts for estimation and
 # forecast periods)
 # ---------------------------------------------------------------------------
@@ -244,7 +377,7 @@ def insample_vs_oos(weekly: pd.DataFrame, results: pd.DataFrame,
     Approximation, on purpose: we fit ONCE on the pre-2021 estimation
     sample and score it in-sample, then compare against the pipeline's
     true out-of-sample RMSE (which refits every week). Good enough to see
-    whether a model memorises noise; simple enough to explain in a demo.
+    whether a model memorises noise; simple enough to explain in a sentence.
     """
     train = weekly[weekly.index < EVAL_START]
     model = model_factory()

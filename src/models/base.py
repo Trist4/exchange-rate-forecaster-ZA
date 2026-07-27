@@ -46,7 +46,7 @@ def make_supervised_pairs(
     `features` defaults to the official config list; ModelTester.ipynb
     passes subsets to experiment with alternative feature sets.
 
-    The no-leakage argument any of us can give a judge: train_df already
+    The no-leakage argument: train_df already
     ends at the origin, and shift(-h) makes the last h rows' outcomes NaN,
     so they are dropped. Every surviving pair has BOTH its features and
     its outcome dated on or before the origin — nothing the forecaster

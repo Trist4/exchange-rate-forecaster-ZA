@@ -68,7 +68,7 @@ def run_backtest(
                     "target_date": target_date,
                     "model": model.name,
                     # log units (what models produce) + level units (ZAR per
-                    # USD, what the brief's RMSE is judged on).
+                    # USD, the unit the task defines RMSE in).
                     "origin_log": float(origin_row[TARGET_COL]),
                     "forecast_log": forecast_log,
                     "actual_log": actual_log,
