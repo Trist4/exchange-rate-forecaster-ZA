@@ -157,16 +157,37 @@ def _window(g: pd.DataFrame, start=None, end=None) -> pd.DataFrame:
 
 
 def fig_forecast_comparison(
-    results: pd.DataFrame, model_name: str, start=None, end=None
+    results: pd.DataFrame, model_name: str, start=None, end=None, band: bool = True
 ) -> Figure:
     """Actual (black solid) vs AR1 (orange dashed) vs the chosen model
     (blue solid), all at TARGET dates — 'what did each say the rate would
     be on this day, and what was it'. Zooming into a window (via the
     notebook slider) makes the two forecasts distinguishable; at full
-    range they both hug the actual, which is itself informative."""
-    g = _window(model_slice(results, model_name), start, end)
+    range they both hug the actual, which is itself informative.
+
+    `band=True` shades a 95% forecast interval (2.5th–97.5th percentile)
+    around the model's forecast. It is pseudo-real-time: the interval at
+    each origin uses the standard deviation of the model's OWN past
+    out-of-sample log errors whose outcomes were already observed by that
+    origin (expanding window, shifted by the 4-week horizon so unresolved
+    forecasts never leak in). Actuals escaping the band ~5% of the time is
+    the calibration check.
+    """
+    g_full = model_slice(results, model_name).sort_values("target_date").copy()
+    if band:
+        err_log = g_full["forecast_log"] - g_full["actual_log"]
+        # Errors resolved by each origin: with weekly origins and an h-week
+        # horizon, the forecast made at origin_i has outcomes of rows
+        # i-h, i-h-1, ... already realised — hence expanding std shifted h.
+        sigma = err_log.expanding(min_periods=8).std().shift(HORIZON_WEEKS)
+        g_full["lo"] = np.exp(g_full["forecast_log"] - 1.96 * sigma)
+        g_full["hi"] = np.exp(g_full["forecast_log"] + 1.96 * sigma)
+    g = _window(g_full, start, end)
     b = _window(model_slice(results, BENCHMARK_NAME), start, end)
     fig, ax = plt.subplots(figsize=(11, 4.5))
+    if band and g["lo"].notna().any():
+        ax.fill_between(g["target_date"], g["lo"], g["hi"], color="tab:blue",
+                        alpha=0.12, label="95% interval (2.5–97.5%)")
     ax.plot(g["target_date"], g["actual"], color="black", lw=1.7, label="actual USDZAR")
     ax.plot(b["target_date"], b["forecast"], color="tab:orange", ls="--", lw=1.4,
             label=f"{BENCHMARK_NAME} forecast")
@@ -197,51 +218,52 @@ def window_metrics(
     return tbl.sort_values("rmse").round(4)
 
 
-def attach_crosshair(fig: Figure) -> None:
-    """Live readout for the comparison chart (needs the interactive ipympl
-    backend, i.e. %matplotlib widget — does nothing useful on static PNGs).
+def attach_hover(fig: Figure, results: pd.DataFrame, model_name: str) -> None:
+    """Single hover tooltip for the comparison chart (ipympl backend).
 
-    As the mouse moves over the axes, a dotted vertical guide snaps to the
-    nearest plotted Friday and a box shows EVERY line's value on that date
-    (actual, AR1, model) — so one glance gives the full comparison at any
-    point, no squinting at pixel heights.
+    One mplcursors cursor is attached to ONE anchor line only; on hover it
+    snaps to the nearest target_date and shows all series' values at that
+    date in a single box. Values are read from the results DataFrame
+    indexed by target_date — not from the plotted line data — so the
+    tooltip stays correct however the slider window slices the plot.
     """
+    import mplcursors
+
     ax = fig.axes[0]
-    lines = [ln for ln in ax.get_lines() if len(ln.get_xdata()) > 0]
-    if not lines:
-        return
-    # Pre-convert each line's x values to matplotlib's float date units so
-    # the mouse position (also float units) can be compared directly.
-    xnums = [mdates.date2num(ln.get_xdata()) for ln in lines]
+    # Suppress ipympl's built-in chrome: the toolbar/header strip and the
+    # "(x, y) = ..." coordinate readout under the axes.
+    fig.canvas.header_visible = False
+    ax.format_coord = lambda x, y: ""
 
-    guide = ax.axvline(ax.get_xlim()[0], color="grey", lw=0.8, ls=":", visible=False)
-    box = ax.annotate(
-        "", xy=(0.99, 0.02), xycoords="axes fraction", ha="right", va="bottom",
-        fontsize=9, family="monospace",
-        bbox=dict(boxstyle="round", fc="white", ec="grey", alpha=0.9),
-        visible=False,
-    )
+    g = model_slice(results, model_name).set_index("target_date").sort_index()
+    rows = [("actual", g["actual"]), (model_name, g["forecast"])]
+    if model_name != BENCHMARK_NAME:
+        b = model_slice(results, BENCHMARK_NAME).set_index("target_date").sort_index()
+        rows.insert(1, (BENCHMARK_NAME, b["forecast"]))
+    dates = g.index
+    date_nums = mdates.date2num(dates)
+    width = max(len(name) for name, _ in rows) + 1  # aligns the value column
 
-    def on_move(event) -> None:
-        if event.inaxes is not ax or event.xdata is None:
-            guide.set_visible(False)
-            box.set_visible(False)
-            fig.canvas.draw_idle()
-            return
-        # Snap to the nearest Friday on the first (actual) line.
-        i = int(np.argmin(np.abs(xnums[0] - event.xdata)))
-        snap_x = xnums[0][i]
-        parts = [mdates.num2date(snap_x).strftime("%Y-%m-%d")]
-        for ln, xn in zip(lines, xnums):
-            j = int(np.argmin(np.abs(xn - snap_x)))
-            parts.append(f"{ln.get_label():<14s} {ln.get_ydata()[j]:7.3f}")
-        guide.set_xdata([snap_x, snap_x])
-        guide.set_visible(True)
-        box.set_text("\n".join(parts))
-        box.set_visible(True)
-        fig.canvas.draw_idle()
+    anchor = ax.get_lines()[0]  # the 'actual' line — every date exists on it
+    cursor = mplcursors.cursor([anchor], hover=True)
 
-    fig.canvas.mpl_connect("motion_notify_event", on_move)
+    @cursor.connect("add")
+    def _on_add(sel) -> None:
+        i = int(np.argmin(np.abs(date_nums - sel.target[0])))
+        d = dates[i]
+        lines = [d.strftime("%Y-%m-%d")]
+        for name, series in rows:
+            value = series.get(d, np.nan)
+            lines.append(f"{name + ':':<{width}} {value:.3f}")
+        sel.annotation.set_text("\n".join(lines))
+        sel.annotation.set_fontfamily("monospace")
+        sel.annotation.set_fontsize(9)
+        sel.annotation.get_bbox_patch().set(
+            boxstyle="round", facecolor="white", alpha=0.9, edgecolor="grey"
+        )
+
+    # Keep a reference so the cursor's event hooks outlive this function.
+    fig._hover_cursor = cursor
 
 
 def window_table(
@@ -400,6 +422,67 @@ def insample_vs_oos(weekly: pd.DataFrame, results: pd.DataFrame,
 # ---------------------------------------------------------------------------
 # Introspection for the tuned linear models (Ridge / Lasso)
 # ---------------------------------------------------------------------------
+def _fitted_pipe(model):
+    """The fitted scale+regressor pipeline of a tuned model, looking through
+    the Lasso+RW wrapper to its inner Lasso when needed."""
+    if hasattr(model, "_best"):
+        return model._best
+    if hasattr(model, "_lasso"):
+        return model._lasso._best
+    raise AttributeError(f"{model.name} has no penalised linear stage")
+
+
+def coefficient_report(
+    weekly: pd.DataFrame, model_name: str, model_factory, origin=None
+) -> pd.DataFrame:
+    """Fitted coefficients at one origin (default: the last Friday).
+
+    What is shown depends on what is statistically honest for each model:
+    * OLS — full statsmodels table: coefficient, std error, p-value and the
+      95% confidence interval (columns '2.5%' and '97.5%').
+    * Ridge / Lasso / Lasso+RW — coefficients on STANDARDISED features (so
+      magnitudes compare across features), plus the CV-chosen alpha. No
+      confidence intervals on purpose: penalised estimates are biased by
+      construction, so analytic intervals would be misleading. A Lasso
+      coefficient of exactly 0 means the feature was dropped — that IS the
+      variable-selection outcome.
+    * Benchmarks / SVM — no per-feature coefficients exist (benchmarks use
+      none; the RBF kernel has no linear weights).
+    """
+    origin = pd.Timestamp(origin) if origin is not None else weekly.index[-1]
+    model = model_factory()
+    model.fit(weekly.loc[weekly.index <= origin])
+
+    if hasattr(model, "_fit"):  # OLS via statsmodels
+        res = model._fit
+        ci = res.conf_int(alpha=0.05)
+        return pd.DataFrame(
+            {
+                "coef": res.params,
+                "std err": res.bse,
+                "p-value": res.pvalues,
+                "2.5%": ci[0],
+                "97.5%": ci[1],
+            }
+        ).round(4)
+
+    try:
+        pipe = _fitted_pipe(model)
+    except AttributeError:
+        return pd.DataFrame(
+            {"note": [f"{model_name} has no per-feature coefficients"]}
+        )
+    reg = pipe.named_steps["reg"]
+    out = pd.DataFrame(
+        {"coef (standardised)": pd.Series(reg.coef_, index=model.features)}
+    )
+    out["selected"] = np.where(out["coef (standardised)"] != 0, "✓", "dropped")
+    out.attrs["alpha"] = float(reg.alpha)
+    print(f"fitted at origin {origin.date()}; CV-chosen alpha = {reg.alpha:.4g}")
+    return out.round(4)
+
+
+
 def linear_coefs_over_time(
     weekly: pd.DataFrame, model_factory, origins: pd.DatetimeIndex
 ) -> pd.DataFrame:
@@ -417,8 +500,8 @@ def linear_coefs_over_time(
     for origin in origins:
         model = model_factory()
         model.fit(weekly.loc[weekly.index <= origin])
-        reg = model._best.named_steps["reg"]
+        reg = _fitted_pipe(model).named_steps["reg"]
         rows[origin.date()] = pd.Series(
-            dict(zip(FEATURE_COLS, reg.coef_)) | {"(alpha)": reg.alpha}
+            dict(zip(model.features, reg.coef_)) | {"(alpha)": reg.alpha}
         )
     return pd.DataFrame(rows).T

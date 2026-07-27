@@ -96,10 +96,10 @@ FRED_SERIES: dict[str, str] = {
 # Local CSV series (hand-downloaded, committed to the repo — no API)
 # ---------------------------------------------------------------------------
 # Platinum: SA's biggest PGM export, but MARKET_RATES has no platinum series
-# and FRED no free daily history, so the team downloaded a daily USD per
-# troy ounce CSV (1969–present). Files live in data/raw/ and are converted
-# to the parquet cache by src/data/local_csv.py during the fetch stage.
-# TODO: record the download URL here for provenance.
+# and FRED no free daily history, so we downloaded a daily USD per troy
+# ounce CSV (1969–present) from https://www.macrotrends.net/ (platinum
+# prices, historical chart data export). Files live in data/raw/ and are
+# converted to the parquet cache by src/data/local_csv.py during fetch.
 LOCAL_CSV_SERIES: dict[str, str] = {
     "platinum": "plt_per_troy_ounce.csv",
 }
